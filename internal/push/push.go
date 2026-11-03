@@ -21,7 +21,16 @@ const (
 	branchPrefix = "orchivio/"
 	modeSymlink  = "120000"
 	modeGitlink  = "160000"
+	modeMissing  = "000000"
+
+	// MaxChangedBytes caps the summed size of all added/modified blobs. It
+	// bounds memory for the secret scan and catches binary files, which
+	// count 0 lines against MaxDiffLines.
+	MaxChangedBytes = 20 << 20
 )
+
+// maxChangedBytes is MaxChangedBytes; tests lower it.
+var maxChangedBytes = MaxChangedBytes
 
 // Request describes one push. RemoteURL holds a token and never appears in errors.
 type Request struct {
@@ -158,6 +167,9 @@ func stageAndCheck(ctx context.Context, g *git, req Request, parent string) ([]s
 	if err := checkSize(ctx, g, parent, req.MaxDiffLines); err != nil {
 		return nil, err
 	}
+	if err := checkBytes(ctx, g, changes); err != nil {
+		return nil, err
+	}
 	return files, checkSecrets(ctx, g, parent, req.CommitMessage, files)
 }
 
@@ -183,10 +195,10 @@ func diffChanges(ctx context.Context, g *git, parent string) ([]change, error) {
 
 func checkChange(ctx context.Context, g *git, c change, req Request) error {
 	if !pathAllowed(c.path, req.AllowedPaths, req.ForbiddenPaths) {
-		return fmt.Errorf("%w: %s", ErrPathNotAllowed, c.path)
+		return fmt.Errorf("%w: %s", ErrPathNotAllowed, quotePath(c.path))
 	}
 	if strings.EqualFold(path.Base(c.path), ".gitmodules") || c.newMode == modeGitlink {
-		return fmt.Errorf("%w: submodule %s", ErrPathNotAllowed, c.path)
+		return fmt.Errorf("%w: submodule %s", ErrPathNotAllowed, quotePath(c.path))
 	}
 	if c.newMode != modeSymlink {
 		return nil
@@ -196,43 +208,9 @@ func checkChange(ctx context.Context, g *git, c change, req Request) error {
 		return err
 	}
 	if symlinkEscapes(c.path, target) {
-		return fmt.Errorf("%w: symlink %s leaves the repository", ErrPathNotAllowed, c.path)
+		return fmt.Errorf("%w: symlink %s leaves the repository", ErrPathNotAllowed, quotePath(c.path))
 	}
 	return nil
-}
-
-func symlinkEscapes(link, target string) bool {
-	if path.IsAbs(target) {
-		return true
-	}
-	resolved := path.Join(path.Dir(link), target)
-	return resolved == ".." || strings.HasPrefix(resolved, "../")
-}
-
-// pathAllowed reports whether a changed path is well-formed, matches an
-// allowed prefix and no forbidden prefix.
-func pathAllowed(p string, allowed, forbidden []string) bool {
-	if p == "" || path.IsAbs(p) || path.Clean(p) != p {
-		return false
-	}
-	for _, seg := range strings.Split(p, "/") {
-		if seg == ".." || seg == "." || strings.EqualFold(seg, ".git") {
-			return false
-		}
-	}
-	return matchesAny(p, allowed) && !matchesAny(p, forbidden)
-}
-
-// matchesAny matches path segments: prefix "src" covers "src" and "src/…",
-// never "srcevil".
-func matchesAny(p string, prefixes []string) bool {
-	for _, prefix := range prefixes {
-		pre := strings.Trim(path.Clean("/"+prefix), "/")
-		if pre == "" || p == pre || strings.HasPrefix(p, pre+"/") {
-			return true
-		}
-	}
-	return false
 }
 
 // checkSize sums added+deleted lines; binary files count 0 lines.
@@ -251,6 +229,33 @@ func checkSize(ctx context.Context, g *git, parent string, maxLines int) error {
 	}
 	if total > maxLines {
 		return fmt.Errorf("%w: %d lines, max %d", ErrDiffTooLarge, total, maxLines)
+	}
+	return nil
+}
+
+// checkBytes sums the blob sizes of all added/modified entries and runs
+// before the secret scan, so the --text patch stays bounded in memory.
+func checkBytes(ctx context.Context, g *git, changes []change) error {
+	var shas strings.Builder
+	for _, c := range changes {
+		if c.newMode != modeMissing {
+			shas.WriteString(c.newSHA + "\n")
+		}
+	}
+	out, err := g.run(ctx, shas.String(), "cat-file", "--batch-check=%(objectsize)")
+	if err != nil {
+		return err
+	}
+	total := 0
+	for line := range strings.Lines(out) {
+		size, err := strconv.Atoi(strings.TrimSpace(line))
+		if err != nil {
+			return fmt.Errorf("push: unexpected cat-file output %q", line)
+		}
+		total += size
+	}
+	if total > maxChangedBytes {
+		return fmt.Errorf("%w: %d bytes, max %d", ErrDiffTooLarge, total, maxChangedBytes)
 	}
 	return nil
 }

@@ -28,6 +28,10 @@ var hardening = []string{
 	"protocol.allow=never",
 	"protocol.https.allow=always",
 	"protocol.file.allow=always",
+	"core.protectHFS=true",
+	"core.protectNTFS=true",
+	"maintenance.auto=false",
+	"gc.auto=0",
 }
 
 // git runs the system git against our own pristine git dir, with the

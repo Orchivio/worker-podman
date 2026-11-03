@@ -473,3 +473,53 @@ func testEnv() []string {
 	}
 	return env
 }
+
+func TestPushNULPrefixedFileCountsZeroLines(t *testing.T) {
+	f := newFixture(t)
+	write(t, f.agent, "src/data.bin", "\x00"+strings.Repeat("line\n", 100))
+	req := f.request()
+	req.MaxDiffLines = 5
+	if _, err := Push(context.Background(), req); err != nil {
+		t.Fatalf("binary under byte limit rejected: %v", err)
+	}
+}
+
+func TestPushRejectsTooManyChangedBytes(t *testing.T) {
+	old := maxChangedBytes
+	maxChangedBytes = 64
+	t.Cleanup(func() { maxChangedBytes = old })
+	f := newFixture(t)
+	write(t, f.agent, "src/data.bin", "\x00"+strings.Repeat("x", 100))
+	expectRejected(t, f, f.request(), ErrDiffTooLarge)
+}
+
+func TestPushRejectedPathIsRedactedInError(t *testing.T) {
+	f := newFixture(t)
+	write(t, f.agent, fakeToken, "x\n")
+	req := f.request()
+	req.AllowedPaths = []string{"src"}
+	_, err := Push(context.Background(), req)
+	if !errors.Is(err, ErrPathNotAllowed) || strings.Contains(err.Error(), fakeToken) || !strings.Contains(err.Error(), "****") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestPushForbiddenPathIsCaseInsensitive(t *testing.T) {
+	f := newFixture(t)
+	write(t, f.agent, ".Orchivio.yaml", "x: 1\n")
+	req := f.request()
+	req.ForbiddenPaths = []string{".orchivio.yaml"}
+	expectRejected(t, f, req, ErrPathNotAllowed)
+}
+
+func TestMatchCaseRules(t *testing.T) {
+	if pathAllowed("SRC/a", []string{"src"}, nil) {
+		t.Error("AllowedPaths must be case-sensitive")
+	}
+	if pathAllowed("Secrets/Key", []string{""}, []string{"secrets/key"}) {
+		t.Error("ForbiddenPaths must be case-insensitive")
+	}
+	if !pathAllowed("secretsx/key", []string{""}, []string{"secrets"}) {
+		t.Error("case-insensitive forbidden match must stay segment-aware")
+	}
+}
