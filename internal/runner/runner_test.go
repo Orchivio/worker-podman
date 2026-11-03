@@ -130,8 +130,14 @@ func dial(t *testing.T, srv *fakeServer) workerv1.WorkerServiceClient {
 
 // fakeSandbox records the spec and runs fn in place of a container.
 type fakeSandbox struct {
-	spec sandbox.Spec
-	fn   func(ctx context.Context, s sandbox.Spec, stdout, stderr io.Writer) error
+	spec    sandbox.Spec
+	fn      func(ctx context.Context, s sandbox.Spec, stdout, stderr io.Writer) error
+	orphans int
+}
+
+func (f *fakeSandbox) RemoveOrphans(context.Context) error {
+	f.orphans++
+	return nil
 }
 
 func (f *fakeSandbox) Run(ctx context.Context, s sandbox.Spec, stdout, stderr io.Writer) error {
@@ -417,8 +423,8 @@ func TestExecuteSandboxEnvHasNoRealSecrets(t *testing.T) {
 	if e.sb.spec.Env["ANTHROPIC_API_KEY"] != "orchivio-proxy-placeholder" || e.sb.spec.Env["ANTHROPIC_BASE_URL"] != "http://orchivio-proxy:8090" {
 		t.Fatalf("env = %v", e.sb.spec.Env)
 	}
-	if strings.Contains(string(e.sb.spec.Stdin), fakeToken) || strings.Contains(string(agentConfig), fakeToken) || len(agentConfig) == 0 {
-		t.Fatalf("token reached stdin or agent .git/config:\n%s", agentConfig)
+	if strings.Contains(string(e.sb.spec.Stdin), fakeToken) || strings.Contains(string(agentConfig), "[remote") || len(agentConfig) == 0 {
+		t.Fatalf("token in stdin or remote in agent .git/config:\n%s", agentConfig)
 	}
 	if len(pristineConfig) == 0 || strings.Contains(string(pristineConfig), "[remote") {
 		t.Fatalf("pristine clone still has a remote:\n%s", pristineConfig)
@@ -509,6 +515,37 @@ func TestExecuteRejectsInvalidRunID(t *testing.T) {
 	if err := e.runner.Execute(context.Background(), a); err == nil {
 		t.Fatal("want error for path-like run id")
 	}
+	if got := e.srv.complete(t); got.GetOutcome() != workerv1.CompleteRunRequest_FAILED || got.GetText() != "invalid run assignment" {
+		t.Fatalf("complete = %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(e.work), "escape")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("run dir created outside the work dir")
+	}
+}
+
+func TestExecuteRunDirFailureCompletesFailed(t *testing.T) {
+	e := newEnv(t, changeFile("src/new.go", "x"))
+	e.runner.cfg.WorkDir = filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(e.runner.cfg.WorkDir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.runner.Execute(context.Background(), assignment("task")); err == nil {
+		t.Fatal("want error when the run dir cannot be created")
+	}
+	got := e.srv.complete(t)
+	if got.GetOutcome() != workerv1.CompleteRunRequest_FAILED || got.GetText() != "worker could not prepare run" {
+		t.Fatalf("complete = %v", got)
+	}
+	if e.sb.spec.Name != "" || len(e.srv.credWrites) != 0 {
+		t.Fatal("run must stop before credentials and sandbox")
+	}
+}
+
+func TestSnippetRedactsBeforeTruncating(t *testing.T) {
+	got := snippet([]byte(strings.Repeat("x", 190) + fakeToken))
+	if strings.Contains(got, "ghs_") || !strings.HasSuffix(got, "****") {
+		t.Fatalf("snippet = %q", got)
+	}
 }
 
 func TestCloneURLInsertsTokenOnlyForHTTPS(t *testing.T) {
@@ -554,5 +591,8 @@ func TestLoopRegistersAndExecutesLeasedRun(t *testing.T) {
 	r := e.srv.registers[0]
 	if r.GetWorkerId() != "w1" || r.GetContractVersion() != "worker.v1" || r.GetCapacity() != 1 {
 		t.Fatalf("register = %v", r)
+	}
+	if e.sb.orphans != 1 {
+		t.Fatalf("RemoveOrphans calls = %d, want 1", e.sb.orphans)
 	}
 }

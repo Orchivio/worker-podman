@@ -21,7 +21,7 @@ func TestPodmanArgsQuestionMountsReadOnly(t *testing.T) {
 	got := Podman{Binary: "podman"}.Args(s)
 	want := []string{"run", "--rm", "-i", "--name", "orchivio-run-r1", "--network", "orchivio-sandbox",
 		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--pids-limit=512", "--memory=4g",
-		"-e", "A=1", "-e", "B=2", "-v", "/h/repos/x:/work/x:ro", "img:dev"}
+		"--http-proxy=false", "-e", "A=1", "-e", "B=2", "-v", "/h/repos/x:/work/x:ro", "img:dev"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("args\n got %q\nwant %q", got, want)
 	}
@@ -89,5 +89,27 @@ func TestPodmanCancelRemovesContainer(t *testing.T) {
 	}
 	if last := rec.calls[len(rec.calls)-1]; !slices.Equal(last, []string{"rm", "-f", "--time=0", "orchivio-run-r2"}) {
 		t.Fatalf("last call = %q, want rm -f", last)
+	}
+}
+
+func TestRemoveOrphansRemovesOnlyRunContainers(t *testing.T) {
+	var calls [][]string
+	cmd := func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		calls = append(calls, args)
+		if args[0] == "ps" {
+			return exec.CommandContext(ctx, "printf", "orchivio-run-a\\nother\\norchivio-run-b\\n")
+		}
+		return exec.CommandContext(ctx, "true")
+	}
+	if err := (Podman{Binary: "podman", Command: cmd}).RemoveOrphans(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"ps", "-a", "--filter", "name=^orchivio-run-", "--format", "{{.Names}}"},
+		{"rm", "-f", "--time=0", "orchivio-run-a"},
+		{"rm", "-f", "--time=0", "orchivio-run-b"},
+	}
+	if !slices.EqualFunc(calls, want, slices.Equal) {
+		t.Fatalf("calls = %q", calls)
 	}
 }

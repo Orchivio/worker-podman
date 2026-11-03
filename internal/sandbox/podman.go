@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os/exec"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -32,7 +33,9 @@ type Podman struct {
 // Args returns the `podman run` arguments for s.
 func (p Podman) Args(s Spec) []string {
 	args := []string{"run", "--rm", "-i", "--name", s.Name, "--network", s.Network,
-		"--cap-drop=ALL", "--security-opt=no-new-privileges", pidsLimit, memoryLimit}
+		"--cap-drop=ALL", "--security-opt=no-new-privileges", pidsLimit, memoryLimit,
+		// podman copies the host's *_proxy variables into the container by default.
+		"--http-proxy=false"}
 	for _, k := range slices.Sorted(maps.Keys(s.Env)) {
 		args = append(args, "-e", k+"="+s.Env[k])
 	}
@@ -73,6 +76,20 @@ func (p Podman) Run(ctx context.Context, s Spec, stdout, stderr io.Writer) error
 	}
 	if err != nil {
 		return fmt.Errorf("sandbox: podman run %s: %w", s.Name, err)
+	}
+	return nil
+}
+
+// RemoveOrphans removes all containers whose name starts with ContainerPrefix.
+func (p Podman) RemoveOrphans(ctx context.Context) error {
+	out, err := p.command(ctx, "ps", "-a", "--filter", "name=^"+ContainerPrefix, "--format", "{{.Names}}").Output()
+	if err != nil {
+		return fmt.Errorf("sandbox: list containers: %w", err)
+	}
+	for name := range strings.FieldsSeq(string(out)) {
+		if strings.HasPrefix(name, ContainerPrefix) { // the filter is a regex; check again
+			p.remove(ctx, name)
+		}
 	}
 	return nil
 }

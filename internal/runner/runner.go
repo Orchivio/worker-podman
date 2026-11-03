@@ -39,7 +39,6 @@ const (
 	eventFinished = "run.finished"
 	statusSuccess = "success"
 
-	containerPrefix    = "orchivio-run-"
 	workdirPrefix      = "/work/"
 	apiKeyPlaceholder  = "orchivio-proxy-placeholder"
 	proxyHost          = "orchivio-proxy"
@@ -56,6 +55,8 @@ const (
 	msgCredentials = "repository credentials unavailable"
 	msgPrepare     = "repository preparation failed"
 	msgInternal    = "internal worker error"
+	msgBadRun      = "invalid run assignment"
+	msgRunDir      = "worker could not prepare run"
 )
 
 // runIDPattern keeps the run id safe as a path element and container name.
@@ -83,6 +84,9 @@ func New(cfg Config, srv workerv1.WorkerServiceClient, sb sandbox.Provider, now 
 // Loop registers the worker and then leases and executes runs until ctx
 // is cancelled. gRPC errors are logged and retried after PollInterval.
 func (r *Runner) Loop(ctx context.Context) error {
+	if err := r.sb.RemoveOrphans(ctx); err != nil {
+		slog.Warn("remove orphan sandboxes", "error", err)
+	}
 	for {
 		_, err := r.srv.Register(ctx, &workerv1.RegisterRequest{WorkerId: r.cfg.WorkerID, ContractVersion: contractVersion, Capacity: capacity})
 		if err == nil {
@@ -123,15 +127,19 @@ func (r *Runner) wait(ctx context.Context) bool {
 // Execute runs one assignment and always reports it with CompleteRun.
 // Clones are deleted afterwards; <work>/<run>/raw.log is kept.
 func (r *Runner) Execute(ctx context.Context, a *workerv1.RunAssignment) error {
+	// Report even unusable assignments, or the run stays leased and comes back.
 	if !runIDPattern.MatchString(a.GetRunId()) {
-		return fmt.Errorf("runner: invalid run id %q", a.GetRunId())
+		return errors.Join(fmt.Errorf("runner: invalid run id %q", a.GetRunId()), r.complete(ctx, a, failed(msgBadRun)))
 	}
 	dir := filepath.Join(r.cfg.WorkDir, a.GetRunId())
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("runner: create run dir: %w", err)
+		return errors.Join(fmt.Errorf("runner: create run dir: %w", err), r.complete(ctx, a, failed(msgRunDir)))
 	}
 	defer cleanup(dir)
-	res := r.run(ctx, a, dir)
+	return r.complete(ctx, a, r.run(ctx, a, dir))
+}
+
+func (r *Runner) complete(ctx context.Context, a *workerv1.RunAssignment, res *workerv1.CompleteRunRequest) error {
 	res.RunId, res.WorkerId = a.GetRunId(), r.cfg.WorkerID
 	// The run context may be cancelled (shutdown); still report the outcome.
 	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), completeTimeout)
@@ -356,7 +364,7 @@ func (r *Runner) spec(a *workerv1.RunAssignment, repos []preparedRepo) runSpecs 
 		timeout = defaultMaxDuration
 	}
 	return runSpecs{runSpec: rs, sandbox: sandbox.Spec{
-		Name: containerPrefix + a.GetRunId(), Image: r.cfg.Image, Network: r.cfg.Network, Mounts: mounts,
+		Name: sandbox.ContainerPrefix + a.GetRunId(), Image: r.cfg.Image, Network: r.cfg.Network, Mounts: mounts,
 		Env: map[string]string{
 			"ANTHROPIC_BASE_URL": r.cfg.ProxyURL,
 			"ANTHROPIC_API_KEY":  apiKeyPlaceholder,
@@ -385,8 +393,11 @@ func (o *observed) note(e *pluginv1.AgentEvent) {
 	}
 }
 
-// forward sends every parsable stdout line as an event. It always drains
-// rd so a slow or failed stream never blocks the container.
+// forward sends every parsable stdout line as an event. After a failed
+// Send it keeps draining rd, so a broken stream never blocks the container.
+// ponytail: Send is synchronous, so a slow server backpressures the
+// container's stdout; upgrade to a bounded channel plus a stream ctx
+// cancelled at the run timeout if that shows up.
 func (r *Runner) forward(stream workerv1.WorkerService_ReportEventsClient, runID string, rd io.Reader, ev *observed) {
 	defer io.Copy(io.Discard, rd)
 	sc := bufio.NewScanner(rd)
@@ -432,8 +443,10 @@ func writeRawLog(w io.Writer, runID string, rd io.Reader) {
 }
 
 func snippet(line []byte) string {
-	if len(line) > logSnippetBytes {
-		line = line[:logSnippetBytes]
+	// Redact first: a cut through a token would leave its prefix unmatched.
+	s := redact.String(string(line))
+	if len(s) > logSnippetBytes {
+		s = s[:logSnippetBytes]
 	}
-	return redact.String(string(line))
+	return s
 }

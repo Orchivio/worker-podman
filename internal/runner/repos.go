@@ -121,7 +121,11 @@ func prepareRepo(ctx context.Context, g hostGit, a *workerv1.RunAssignment, dir 
 	}
 	// --no-hardlinks: the agent may rewrite files in its copy; shared
 	// inodes would let it corrupt the pristine objects push relies on.
-	_, err = g.run(ctx, "", "clone", "--quiet", "--no-hardlinks", "--branch", checkout, "--", p.pristine, p.agent)
+	if _, err := g.run(ctx, "", "clone", "--quiet", "--no-hardlinks", "--branch", checkout, "--", p.pristine, p.agent); err != nil {
+		return p, err
+	}
+	// The origin would name the host path of the pristine clone.
+	_, err = g.run(ctx, filepath.Join(p.agent, ".git"), "remote", "remove", "origin")
 	return p, err
 }
 

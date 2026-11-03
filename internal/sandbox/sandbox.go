@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// ContainerPrefix starts every sandbox container name; RemoveOrphans relies on it.
+const ContainerPrefix = "orchivio-run-"
+
 // ErrTimeout is returned when a run exceeds Spec.Timeout.
 var ErrTimeout = errors.New("sandbox: run exceeded timeout")
 
@@ -32,4 +35,7 @@ type Spec struct {
 // cancellation; in both cases the container is gone afterwards.
 type Provider interface {
 	Run(ctx context.Context, s Spec, stdout, stderr io.Writer) error
+	// RemoveOrphans removes every ContainerPrefix container, e.g. left
+	// behind by a crashed worker. Call it only while no run is active.
+	RemoveOrphans(ctx context.Context) error
 }
