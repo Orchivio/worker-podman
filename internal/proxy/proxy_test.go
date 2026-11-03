@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/soemii/orchivio-worker/internal/proxy"
 )
@@ -66,9 +67,33 @@ func TestProxyUsesOAuthBearer(t *testing.T) {
 	}
 }
 
-func TestProxyKeepsExistingBetaHeader(t *testing.T) {
+func TestProxyAppendsOAuthBetaToExisting(t *testing.T) {
 	up, seen := echoUpstream(t)
 	h := proxy.New(proxy.Config{Upstream: up, OAuthToken: "tok"})
+	req := httptest.NewRequest("POST", "/", nil)
+	req.Header.Set("anthropic-beta", "custom, other")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	// semantics: comma-joined single header, oauth token appended last
+	if got := seen.Get("anthropic-beta"); got != "custom,other,oauth-2025-04-20" {
+		t.Errorf("anthropic-beta = %q", got)
+	}
+}
+
+func TestProxyDoesNotDuplicateOAuthBeta(t *testing.T) {
+	up, seen := echoUpstream(t)
+	h := proxy.New(proxy.Config{Upstream: up, OAuthToken: "tok"})
+	req := httptest.NewRequest("POST", "/", nil)
+	req.Header.Add("anthropic-beta", "a,oauth-2025-04-20")
+	req.Header.Add("anthropic-beta", "b")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if got := seen.Get("anthropic-beta"); got != "a,oauth-2025-04-20,b" {
+		t.Errorf("anthropic-beta = %q", got)
+	}
+}
+
+func TestProxyAPIKeyModeLeavesBetaUntouched(t *testing.T) {
+	up, seen := echoUpstream(t)
+	h := proxy.New(proxy.Config{Upstream: up, APIKey: "k"})
 	req := httptest.NewRequest("POST", "/", nil)
 	req.Header.Set("anthropic-beta", "custom")
 	h.ServeHTTP(httptest.NewRecorder(), req)
@@ -92,14 +117,32 @@ func TestProxyRejectsAbsoluteFormToOtherHost(t *testing.T) {
 }
 
 func TestProxyRejectsConnectNotAllowed(t *testing.T) {
+	target, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+	accepted := make(chan struct{}, 1)
+	go func() {
+		if c, err := target.Accept(); err == nil {
+			c.Close()
+			accepted <- struct{}{}
+		}
+	}()
 	up, _ := echoUpstream(t)
 	h := proxy.New(proxy.Config{Upstream: up, APIKey: "k", AllowConnect: []string{"ok.example:443"}})
-	req := httptest.NewRequest("CONNECT", "evil.example:443", nil)
-	req.Host = "evil.example:443"
+	req := httptest.NewRequest("CONNECT", target.Addr().String(), nil)
+	req.Host = target.Addr().String()
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != 403 {
 		t.Fatalf("code = %d", rec.Code)
+	}
+	target.Close() // unblocks Accept
+	select {
+	case <-accepted:
+		t.Fatal("proxy dialed a denied target")
+	case <-time.After(100 * time.Millisecond):
 	}
 }
 
@@ -118,8 +161,9 @@ func TestProxyAllowsConnectListed(t *testing.T) {
 		io.Copy(c, c) // echo
 	}()
 	up, _ := echoUpstream(t)
-	addr := target.Addr().String()
-	srv := httptest.NewServer(proxy.New(proxy.Config{Upstream: up, APIKey: "k", AllowConnect: []string{strings.ToUpper(addr)}}))
+	_, port, _ := net.SplitHostPort(target.Addr().String())
+	addr := "localhost:" + port
+	srv := httptest.NewServer(proxy.New(proxy.Config{Upstream: up, APIKey: "k", AllowConnect: []string{"LOCALHOST:" + port}}))
 	defer srv.Close()
 
 	c, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
@@ -152,7 +196,16 @@ func TestValidateRejectsBadConfig(t *testing.T) {
 			t.Errorf("%s: expected error", name)
 		}
 	}
-	if err := proxy.Validate(proxy.Config{Upstream: u, APIKey: "a"}); err != nil {
-		t.Errorf("valid config: %v", err)
+	for name, raw := range map[string]string{"http remote": "http://api.example.com", "ftp": "ftp://localhost", "no host": "https://"} {
+		bad, _ := url.Parse(raw)
+		if err := proxy.Validate(proxy.Config{Upstream: bad, APIKey: "a"}); err == nil {
+			t.Errorf("%s: expected error", name)
+		}
+	}
+	for _, raw := range []string{"https://api.anthropic.com", "http://127.0.0.1:1", "http://localhost:1", "http://[::1]:1"} {
+		ok, _ := url.Parse(raw)
+		if err := proxy.Validate(proxy.Config{Upstream: ok, APIKey: "a"}); err != nil {
+			t.Errorf("%s: %v", raw, err)
+		}
 	}
 }

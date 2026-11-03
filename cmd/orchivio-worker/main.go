@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/soemii/orchivio-worker/internal/proxy"
 )
@@ -15,6 +16,8 @@ import (
 const (
 	defaultProxyAddr = ":8090"
 	defaultUpstream  = "https://api.anthropic.com"
+
+	readHeaderTimeout = 10 * time.Second
 )
 
 func main() {
@@ -59,7 +62,13 @@ func runProxy() error {
 	}
 	addr := envOr("ORCHIVIO_PROXY_ADDR", defaultProxyAddr)
 	slog.Info("proxy listening", "addr", addr, "upstream", u.Redacted(), "allow_connect", cfg.AllowConnect)
-	return http.ListenAndServe(addr, proxy.New(cfg))
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           proxy.New(cfg),
+		ReadHeaderTimeout: readHeaderTimeout,
+		ErrorLog:          proxy.ErrorLogger(),
+	}
+	return srv.ListenAndServe()
 }
 
 func envOr(key, fallback string) string {
