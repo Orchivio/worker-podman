@@ -138,11 +138,10 @@ func TestProxyRejectsConnectNotAllowed(t *testing.T) {
 	if rec.Code != 403 {
 		t.Fatalf("code = %d", rec.Code)
 	}
-	target.Close() // unblocks Accept
 	select {
 	case <-accepted:
 		t.Fatal("proxy dialed a denied target")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
@@ -196,7 +195,7 @@ func TestValidateRejectsBadConfig(t *testing.T) {
 			t.Errorf("%s: expected error", name)
 		}
 	}
-	for name, raw := range map[string]string{"http remote": "http://api.example.com", "ftp": "ftp://localhost", "no host": "https://"} {
+	for name, raw := range map[string]string{"http remote": "http://api.example.com", "localhost lookalike": "http://localhost.evil.com", "ftp": "ftp://localhost", "no host": "https://"} {
 		bad, _ := url.Parse(raw)
 		if err := proxy.Validate(proxy.Config{Upstream: bad, APIKey: "a"}); err == nil {
 			t.Errorf("%s: expected error", name)
