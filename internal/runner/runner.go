@@ -240,7 +240,7 @@ func (r *Runner) push(ctx context.Context, a *workerv1.RunAssignment, repos []pr
 		res, err := push.Push(ctx, push.Request{
 			PristineGitDir: repo.pristine, AgentDir: repo.agent,
 			BaseBranch: repo.base, Branch: a.GetBranch(),
-			AllowedPaths: a.GetAllowedPaths(), ForbiddenPaths: repo.file.ForbiddenPaths,
+			AllowedPaths: repo.allowedPaths, ForbiddenPaths: repo.file.ForbiddenPaths,
 			MaxDiffLines: int(a.GetMaxDiffLines()), CommitMessage: commitMessage(a), RemoteURL: remote,
 		})
 		if err != nil {

@@ -238,11 +238,11 @@ func newEnv(t *testing.T, fn func(ctx context.Context, s sandbox.Spec, stdout, s
 func assignment(kind string) *workerv1.RunAssignment {
 	a := &workerv1.RunAssignment{
 		RunId: testRunID, Kind: kind,
-		Repos:        []*workerv1.Repo{{Slug: testSlug, BaseBranch: "main"}},
+		Repos:        []*workerv1.Repo{{Slug: testSlug, BaseBranch: "main", AllowedPaths: []string{"src/"}}},
 		Spec:         &pluginv1.RunSpec{RunId: testRunID, Prompt: "do it", Instructions: "profile"},
-		AllowedPaths: []string{"src/"}, MaxDiffLines: 100,
-		MaxDuration: durationpb.New(time.Minute),
-		TicketRef:   "ORC-1", TicketTitle: "Fix the thing",
+		MaxDiffLines: 100,
+		MaxDuration:  durationpb.New(time.Minute),
+		TicketRef:    "ORC-1", TicketTitle: "Fix the thing",
 	}
 	if kind == "task" {
 		a.Branch = testBranch

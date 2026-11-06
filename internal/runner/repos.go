@@ -38,6 +38,7 @@ type preparedRepo struct {
 	pristine         string // bare clone, never mounted, no remote
 	agent            string // agent copy, mounted at /work/<name>
 	file             repofile.RepoFile
+	allowedPaths     []string // from the server config of this repo only
 }
 
 // hostGit runs git on the host with the hardened env. Errors carry
@@ -98,7 +99,7 @@ func prepare(ctx context.Context, a *workerv1.RunAssignment, dir string, creds *
 }
 
 func prepareRepo(ctx context.Context, g hostGit, a *workerv1.RunAssignment, dir string, r *workerv1.Repo, name string, creds *pluginv1.RepoCredentials) (preparedRepo, error) {
-	p := preparedRepo{slug: r.GetSlug(), name: name, base: r.GetBaseBranch(),
+	p := preparedRepo{slug: r.GetSlug(), name: name, base: r.GetBaseBranch(), allowedPaths: r.GetAllowedPaths(),
 		pristine: filepath.Join(dir, "pristine", name+".git"), agent: filepath.Join(dir, "repos", name)}
 	remote, err := cloneURL(creds.GetCloneUrls()[p.slug], creds)
 	if err != nil {
