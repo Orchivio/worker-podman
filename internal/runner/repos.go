@@ -14,11 +14,11 @@ import (
 	"regexp"
 	"strings"
 
-	pluginv1 "github.com/soemii/orchivio-server/contract/gen/orchivio/plugin/v1"
-	workerv1 "github.com/soemii/orchivio-server/contract/gen/orchivio/worker/v1"
-	"github.com/soemii/orchivio-server/contract/redact"
-	"github.com/soemii/orchivio-server/contract/repofile"
-	"github.com/soemii/orchivio-worker/internal/gitenv"
+	pluginv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/plugin/v1"
+	workerv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/worker/v1"
+	"github.com/orchivio/orchestrator/contract/redact"
+	"github.com/orchivio/orchestrator/contract/repofile"
+	"github.com/orchivio/worker-podman/internal/gitenv"
 )
 
 const (

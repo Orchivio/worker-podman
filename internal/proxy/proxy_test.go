@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/soemii/orchivio-worker/internal/proxy"
+	"github.com/orchivio/worker-podman/internal/proxy"
 )
 
 // echoUpstream returns the received headers as JSON-less text lines.

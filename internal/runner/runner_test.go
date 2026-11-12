@@ -22,9 +22,9 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	pluginv1 "github.com/soemii/orchivio-server/contract/gen/orchivio/plugin/v1"
-	workerv1 "github.com/soemii/orchivio-server/contract/gen/orchivio/worker/v1"
-	"github.com/soemii/orchivio-worker/internal/sandbox"
+	pluginv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/plugin/v1"
+	workerv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/worker/v1"
+	"github.com/orchivio/worker-podman/internal/sandbox"
 )
 
 const (

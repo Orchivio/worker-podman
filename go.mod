@@ -1,9 +1,9 @@
-module github.com/soemii/orchivio-worker
+module github.com/orchivio/worker-podman
 
 go 1.26.3
 
 require (
-	github.com/soemii/orchivio-server/contract v0.0.0
+	github.com/orchivio/orchestrator/contract v0.0.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -16,4 +16,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/soemii/orchivio-server/contract => ../orchivio-server/contract
+replace github.com/orchivio/orchestrator/contract => ../orchestrator/contract

@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/soemii/orchivio-server/contract/redact"
-	"github.com/soemii/orchivio-worker/internal/gitenv"
+	"github.com/orchivio/orchestrator/contract/redact"
+	"github.com/orchivio/worker-podman/internal/gitenv"
 )
 
 const orchivioIdent = "Orchivio"

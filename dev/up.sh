@@ -12,7 +12,7 @@ network=orchivio-sandbox
 egress=orchivio-egress
 
 make -C "$worker" image
-make -C "$worker/../orchivio-adapter-claude-code" image
+make -C "$worker/../adapter-claude-code" image
 
 podman network exists "$network" || podman network create --internal "$network"
 podman network exists "$egress" || podman network create "$egress"

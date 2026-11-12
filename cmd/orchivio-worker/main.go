@@ -17,10 +17,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	workerv1 "github.com/soemii/orchivio-server/contract/gen/orchivio/worker/v1"
-	"github.com/soemii/orchivio-worker/internal/proxy"
-	"github.com/soemii/orchivio-worker/internal/runner"
-	"github.com/soemii/orchivio-worker/internal/sandbox"
+	workerv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/worker/v1"
+	"github.com/orchivio/worker-podman/internal/proxy"
+	"github.com/orchivio/worker-podman/internal/runner"
+	"github.com/orchivio/worker-podman/internal/sandbox"
 )
 
 const (
