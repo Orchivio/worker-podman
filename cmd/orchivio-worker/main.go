@@ -30,7 +30,7 @@ const (
 	readHeaderTimeout = 10 * time.Second
 
 	defaultServerAddr     = "localhost:7070"
-	defaultSandboxImage   = "localhost/orchivio-sandbox-claude:dev"
+	defaultSandboxImage   = "ghcr.io/orchivio/adapter-claude-code:main"
 	defaultSandboxNetwork = "orchivio-sandbox"
 	defaultSandboxProxy   = "http://orchivio-proxy:8090"
 	defaultPollInterval   = 2 * time.Second
