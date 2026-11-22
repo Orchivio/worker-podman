@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Cross-compiles on the build platform; no emulation needed for multi-arch.
-FROM --platform=$BUILDPLATFORM golang:1.26.3-bookworm AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.4-bookworm AS build
 ARG TARGETOS TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
