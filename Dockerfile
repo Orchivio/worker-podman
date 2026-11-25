@@ -21,8 +21,9 @@ RUN eval "sum=\$PODMAN_SHA256_${TARGETARCH}" \
  && mv /bin/podman-remote-static-linux_${TARGETARCH} /podman
 
 # The worker needs git (clone, guarded push) and podman (sandboxes); the
-# proxy subcommand runs from the same image.
-FROM debian:bookworm-slim
+# proxy subcommand runs from the same image. trixie: the guarded push uses
+# `git --attr-source`, which needs git >= 2.40 (bookworm ships 2.39).
+FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates \
  && rm -rf /var/lib/apt/lists/*
