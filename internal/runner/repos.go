@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	pluginv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/plugin/v1"
 	workerv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/worker/v1"
@@ -73,6 +74,35 @@ func (g hostGit) sanitize(s string) string {
 	return strings.TrimSpace(redact.String(s))
 }
 
+// forRepo returns the credentials to use for one repo: its own token
+// (and expiry) from tokens[slug] if it has one, else the top-level ones.
+func forRepo(creds *pluginv1.RepoCredentials, slug string) *pluginv1.RepoCredentials {
+	t, ok := creds.GetTokens()[slug]
+	if !ok || t.GetToken() == "" {
+		return creds
+	}
+	exp := t.GetExpiresAt()
+	if exp == nil {
+		exp = creds.GetExpiresAt()
+	}
+	return &pluginv1.RepoCredentials{Username: t.GetUsername(), Token: t.GetToken(),
+		CloneUrls: creds.GetCloneUrls(), ExpiresAt: exp}
+}
+
+// needsRefresh reports whether the credentials of any of the repos
+// expire before now+margin.
+func needsRefresh(creds *pluginv1.RepoCredentials, repos []preparedRepo, deadline time.Time) bool {
+	if exp := creds.GetExpiresAt(); exp != nil && exp.AsTime().Before(deadline) {
+		return true
+	}
+	for _, repo := range repos {
+		if exp := forRepo(creds, repo.slug).GetExpiresAt(); exp != nil && exp.AsTime().Before(deadline) {
+			return true
+		}
+	}
+	return false
+}
+
 // prepare clones every repo of the run: a bare pristine clone with the
 // token (remote removed afterwards) and a token-free agent copy of it.
 func prepare(ctx context.Context, a *workerv1.RunAssignment, dir string, creds *pluginv1.RepoCredentials) ([]preparedRepo, error) {
@@ -80,7 +110,7 @@ func prepare(ctx context.Context, a *workerv1.RunAssignment, dir string, creds *
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return nil, fmt.Errorf("create git home: %w", err)
 	}
-	g := hostGit{env: gitenv.Env(home), dir: dir, token: creds.GetToken()}
+	base := hostGit{env: gitenv.Env(home), dir: dir}
 	var repos []preparedRepo
 	seen := map[string]bool{}
 	for _, r := range a.GetRepos() {
@@ -89,7 +119,10 @@ func prepare(ctx context.Context, a *workerv1.RunAssignment, dir string, creds *
 			return nil, fmt.Errorf("invalid or duplicate repo name in slug %q", r.GetSlug())
 		}
 		seen[name] = true
-		p, err := prepareRepo(ctx, g, a, dir, r, name, creds)
+		repoCreds := forRepo(creds, r.GetSlug())
+		g := base
+		g.token = repoCreds.GetToken()
+		p, err := prepareRepo(ctx, g, a, dir, r, name, repoCreds)
 		if err != nil {
 			return nil, fmt.Errorf("repo %s: %w", r.GetSlug(), err)
 		}
