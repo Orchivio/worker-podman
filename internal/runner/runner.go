@@ -232,7 +232,8 @@ func (r *Runner) push(ctx context.Context, a *workerv1.RunAssignment, repos []pr
 	}
 	pushed := map[string]string{}
 	for _, repo := range repos {
-		remote, err := cloneURL(creds.GetCloneUrls()[repo.slug], creds)
+		repoCreds := forRepo(creds, repo.slug)
+		remote, err := cloneURL(creds.GetCloneUrls()[repo.slug], repoCreds)
 		if err != nil {
 			slog.Error("push remote", "run", a.GetRunId(), "repo", repo.slug, "error", err)
 			return failed(repo.slug + ": push failed")
@@ -244,7 +245,7 @@ func (r *Runner) push(ctx context.Context, a *workerv1.RunAssignment, repos []pr
 			MaxDiffLines: int(a.GetMaxDiffLines()), CommitMessage: commitMessage(a), RemoteURL: remote,
 		})
 		if err != nil {
-			return failed(pushFailure(a.GetRunId(), repo.slug, creds.GetToken(), err))
+			return failed(pushFailure(a.GetRunId(), repo.slug, repoCreds.GetToken(), err))
 		}
 		if res.Pushed {
 			pushed[repo.slug] = a.GetBranch()

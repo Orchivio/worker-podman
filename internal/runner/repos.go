@@ -73,6 +73,17 @@ func (g hostGit) sanitize(s string) string {
 	return strings.TrimSpace(redact.String(s))
 }
 
+// forRepo returns the credentials to use for one repo: its own token
+// from tokens[slug] if present, else the top-level token and username.
+func forRepo(creds *pluginv1.RepoCredentials, slug string) *pluginv1.RepoCredentials {
+	t, ok := creds.GetTokens()[slug]
+	if !ok {
+		return creds
+	}
+	return &pluginv1.RepoCredentials{Username: t.GetUsername(), Token: t.GetToken(),
+		CloneUrls: creds.GetCloneUrls(), ExpiresAt: creds.GetExpiresAt()}
+}
+
 // prepare clones every repo of the run: a bare pristine clone with the
 // token (remote removed afterwards) and a token-free agent copy of it.
 func prepare(ctx context.Context, a *workerv1.RunAssignment, dir string, creds *pluginv1.RepoCredentials) ([]preparedRepo, error) {
@@ -80,7 +91,7 @@ func prepare(ctx context.Context, a *workerv1.RunAssignment, dir string, creds *
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return nil, fmt.Errorf("create git home: %w", err)
 	}
-	g := hostGit{env: gitenv.Env(home), dir: dir, token: creds.GetToken()}
+	base := hostGit{env: gitenv.Env(home), dir: dir}
 	var repos []preparedRepo
 	seen := map[string]bool{}
 	for _, r := range a.GetRepos() {
@@ -89,7 +100,10 @@ func prepare(ctx context.Context, a *workerv1.RunAssignment, dir string, creds *
 			return nil, fmt.Errorf("invalid or duplicate repo name in slug %q", r.GetSlug())
 		}
 		seen[name] = true
-		p, err := prepareRepo(ctx, g, a, dir, r, name, creds)
+		repoCreds := forRepo(creds, r.GetSlug())
+		g := base
+		g.token = repoCreds.GetToken()
+		p, err := prepareRepo(ctx, g, a, dir, r, name, repoCreds)
 		if err != nil {
 			return nil, fmt.Errorf("repo %s: %w", r.GetSlug(), err)
 		}
