@@ -37,7 +37,13 @@ func Args() []string {
 	return args
 }
 
+// passthrough lists the only GIT_* variables inherited from the
+// environment: CA settings for TLS-intercepting corporate proxies (git
+// uses GnuTLS, which ignores SSL_CERT_FILE).
+var passthrough = []string{"GIT_SSL_CAINFO", "GIT_SSL_CAPATH"}
+
 // Env returns the process environment without any inherited GIT_*
+// (except passthrough)
 // (GIT_DIR, GIT_CONFIG_PARAMETERS, GIT_SSH_COMMAND, ...) or
 // config-locating variable, with system/global config off and HOME set
 // to home, an empty directory owned by the caller.
@@ -55,6 +61,11 @@ func Env(home string) []string {
 			continue
 		}
 		env = append(env, kv)
+	}
+	for _, key := range passthrough {
+		if value, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+value)
+		}
 	}
 	return env
 }
