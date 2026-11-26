@@ -222,7 +222,7 @@ func agentFailure(text string) string {
 // push runs the guarded push step for every repo. At least one push →
 // PUSHED; no changes anywhere → ANSWERED; any violation → FAILED.
 func (r *Runner) push(ctx context.Context, a *workerv1.RunAssignment, repos []preparedRepo, creds *pluginv1.RepoCredentials, text string) *workerv1.CompleteRunRequest {
-	if exp := creds.GetExpiresAt(); exp != nil && exp.AsTime().Before(r.now().Add(credentialMargin)) {
+	if needsRefresh(creds, repos, r.now().Add(credentialMargin)) {
 		fresh, err := r.credentials(ctx, a)
 		if err != nil {
 			slog.Error("refresh repo credentials", "run", a.GetRunId(), "error", err)

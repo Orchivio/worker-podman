@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	pluginv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/plugin/v1"
 	workerv1 "github.com/orchivio/orchestrator/contract/gen/orchivio/worker/v1"
@@ -74,14 +75,32 @@ func (g hostGit) sanitize(s string) string {
 }
 
 // forRepo returns the credentials to use for one repo: its own token
-// from tokens[slug] if present, else the top-level token and username.
+// (and expiry) from tokens[slug] if it has one, else the top-level ones.
 func forRepo(creds *pluginv1.RepoCredentials, slug string) *pluginv1.RepoCredentials {
 	t, ok := creds.GetTokens()[slug]
-	if !ok {
+	if !ok || t.GetToken() == "" {
 		return creds
 	}
+	exp := t.GetExpiresAt()
+	if exp == nil {
+		exp = creds.GetExpiresAt()
+	}
 	return &pluginv1.RepoCredentials{Username: t.GetUsername(), Token: t.GetToken(),
-		CloneUrls: creds.GetCloneUrls(), ExpiresAt: creds.GetExpiresAt()}
+		CloneUrls: creds.GetCloneUrls(), ExpiresAt: exp}
+}
+
+// needsRefresh reports whether the credentials of any of the repos
+// expire before now+margin.
+func needsRefresh(creds *pluginv1.RepoCredentials, repos []preparedRepo, deadline time.Time) bool {
+	if exp := creds.GetExpiresAt(); exp != nil && exp.AsTime().Before(deadline) {
+		return true
+	}
+	for _, repo := range repos {
+		if exp := forRepo(creds, repo.slug).GetExpiresAt(); exp != nil && exp.AsTime().Before(deadline) {
+			return true
+		}
+	}
+	return false
 }
 
 // prepare clones every repo of the run: a bare pristine clone with the
